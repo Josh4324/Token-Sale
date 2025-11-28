@@ -10,14 +10,7 @@ const Web3WalletApp = () => {
   const [success, setSuccess] = useState('');
 
   // Transfer form state
-  const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
-
-
-  // Token approval state
-  //const [tokenAddress, setTokenAddress] = useState('');
-  const [spenderAddress, setSpenderAddress] = useState("");
-  const [approvalAmount, setApprovalAmount] = useState('');
 
   // Check if MetaMask is installed
   const isMetaMaskInstalled = () => {
@@ -99,66 +92,63 @@ const Web3WalletApp = () => {
     }
   };
 
-  // Approve ERC20 token spending
-  const approveToken = async (evt) => {
-    if (!account) {
-      setError('Please connect your wallet first');
-      return;
-    }
 
-    if (!approvalAmount) {
-      setError('Please fill in all approval fields');
-      return;
-    }
 
-    try {
-      setLoading(true);
-      setError('');
-
-      // ERC20 approve function signature
-      evt.preventDefault();
-      const contract = await createWriteContract();
-      const tx = await contract.approve("0x7f0113D6fb9faDD19D965bF025B314C8E1C5786d", approvalAmount);
-      await tx.wait();
-
-      setSuccess(`Approval sent!`);
-
-      setSpenderAddress('');
-      setApprovalAmount('');
-      setTimeout(() => setSuccess(''), 5000);
-    } catch (err) {
-      setError(err.message || 'Approval failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Transfer ERC20 tokens
+  // Buy ARM tokens with automatic approval
   const buy = async (evt) => {
     if (!account) {
       setError('Please connect your wallet first');
       return;
     }
 
-    if (!tokenAddress || !recipient || !amount) {
-      setError('Please fill in all fields');
+    if (!amount) {
+      setError('Please enter an amount');
       return;
     }
 
     try {
       setLoading(true);
       setError('');
-
       evt.preventDefault();
-      const contract = await createBuyContract();
 
-      const tx = await contract.buy(amount);
-      await tx.wait();
+      // Get token decimals first
+      const tokenContract = await createWriteContract();
+      const decimals = await tokenContract.decimals();
+      
+      // Calculate amount with decimals (amount * 10^decimals)
+      const approveAmountWithDecimals = BigInt(amount) * (10n ** BigInt(decimals));
+      const buyAmountWithDecimals = BigInt(amount) * (10n ** BigInt(18));
+     
 
-      setSuccess(`Transaction successful!`);
-      setRecipient('');
+      // Step 1: Approve tokens
+      setSuccess('Approving tokens...');
+      const approveTx = await tokenContract.approve("0x7f0113D6fb9faDD19D965bF025B314C8E1C5786d", approveAmountWithDecimals);
+      await approveTx.wait();
+
+      // Step 2: Buy tokens
+      setSuccess('Purchasing tokens...');
+      const buyContract = await createBuyContract();
+      const buyTx = await buyContract.buy(buyAmountWithDecimals);
+      const receipt = await buyTx.wait();
+
+      setSuccess(
+        <div>
+          <p>Transaction successful! Bought {amount} ARM tokens.</p>
+          <p className="mt-2">
+            <strong>Transaction Hash:</strong>{' '}
+            <a
+              href={`https://sepolia.basescan.org/tx/${receipt.hash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-300 hover:text-blue-200 underline break-all"
+            >
+              {receipt.hash}
+            </a>
+          </p>
+        </div>
+      );
       setAmount('');
-      setTimeout(() => setSuccess(''), 5000);
+      setTimeout(() => setSuccess(''), 10000);
     } catch (err) {
       setError(err.message || 'Transaction failed');
     } finally {
@@ -236,8 +226,8 @@ const Web3WalletApp = () => {
         )}
 
         {/* Main Content */}
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Transfer Card */}
+        <div className="max-w-2xl mx-auto">
+          {/* Buy Card */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
             <div className="flex items-center gap-3 mb-6">
               <Send className="text-white" size={24} />
@@ -245,19 +235,11 @@ const Web3WalletApp = () => {
             </div>
 
             <div className="space-y-4">
-
-
-              <div>
-                <label className="block text-sm font-medium text-indigo-200 mb-2">
-                  Recipient Address
-                </label>
-                <input
-                  type="text"
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  placeholder="0x..."
-                  className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+              <div className="mb-4">
+                <p className="text-sm text-indigo-200 mb-1">Tokens will be sent to:</p>
+                <p className="text-white font-mono text-sm bg-white/5 px-4 py-2 rounded-lg border border-white/20">
+                  {account ? `${account.substring(0, 6)}...${account.substring(38)}` : 'Connect wallet first'}
+                </p>
               </div>
 
               <div>
@@ -274,59 +256,33 @@ const Web3WalletApp = () => {
                 />
               </div>
 
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                <p className="text-blue-200 text-sm">
+                  <strong>Note:</strong> This will automatically approve and purchase tokens in one transaction flow.
+                </p>
+              </div>
+
               <button
                 onClick={buy}
                 disabled={loading || !account}
                 className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
-                Buy ARM
-              </button>
-            </div>
-          </div>
-
-          {/* Approval Card */}
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
-            <div className="flex items-center gap-3 mb-6">
-              <CheckCircle className="text-white" size={24} />
-              <h2 className="text-2xl font-bold text-white">Token Approval</h2>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-indigo-200 mb-2">
-                  Approval Amount
-                </label>
-                <input
-                  type="number"
-                  value={approvalAmount}
-                  onChange={(e) => setApprovalAmount(e.target.value)}
-                  placeholder="0.0"
-                  step="0.001"
-                  className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <button
-                onClick={approveToken}
-                disabled={loading || !account}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle size={20} />}
-                Approve Token
+                {loading ? 'Processing...' : 'Approve & Buy ARM'}
               </button>
             </div>
           </div>
         </div>
 
         {/* Info Card */}
-        <div className="mt-6 bg-white/5 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
+        <div className="mt-6 max-w-2xl mx-auto bg-white/5 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
           <h3 className="text-lg font-semibold text-white mb-3">How to Use</h3>
           <ul className="space-y-2 text-indigo-200 text-sm">
             <li>• Connect your MetaMask wallet to get started</li>
-            <li>• Use the Transfer section to send native ETH or ERC20 tokens</li>
-            <li>• Use the Approval section to allow smart contracts to spend your tokens</li>
-            <li>• All transactions require confirmation in MetaMask</li>
+            <li>• Enter the amount of ARM tokens you want to buy</li>
+            <li>• Click "Approve & Buy ARM" - this will handle both approval and purchase automatically</li>
+            <li>• Confirm both transactions in MetaMask when prompted</li>
+            <li>• Tokens will be sent directly to your connected wallet</li>
             <li>• Make sure you have enough ETH for gas fees</li>
           </ul>
         </div>
